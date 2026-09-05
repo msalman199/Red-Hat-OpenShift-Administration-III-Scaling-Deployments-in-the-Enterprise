@@ -1,0 +1,16 @@
+OpenShift Application Restoration Report
+========================================
+Date: Sat Sep  5 03:54:00 UTC 2026
+Operator: salman-redhat
+
+RESTORATION SUMMARY:
+- Source Backup: sample-app-backup-20260905
+- Target Namespace: restored-app-namespace
+- Restoration Method: Cross-cluster restore
+
+VERIFICATION RESULTS:
+Deployments Status:
+
+Services Status:
+
+Persistent Volume Claims:
