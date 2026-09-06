@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-metrics-app
+  namespace: prometheus-lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sample-metrics-app
+  template:
+    metadata:
+      labels:
+        app: sample-metrics-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: sample-app
+        image: quay.io/prometheus/node-exporter:latest
+        ports:
+        - containerPort: 9100
+          name: metrics
+        args:
+        - --path.procfs=/host/proc
+        - --path.sysfs=/host/sys
+        - --collector.filesystem.ignored-mount-points
+        - ^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly:  true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      hostNetwork: true
+      hostPID: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-metrics-service
+  namespace: prometheus-lab
+  labels:
+    app: sample-metrics-app
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9100"
+spec:
+  ports:
+  - port: 9100
+    targetPort: 9100
+    name: metrics
+  selector:
+    app: sample-metrics-app

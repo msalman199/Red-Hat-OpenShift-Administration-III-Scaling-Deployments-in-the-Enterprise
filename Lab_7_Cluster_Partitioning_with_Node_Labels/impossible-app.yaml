@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: impossible-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: impossible-app
+  template:
+    metadata:
+      labels:
+        app: impossible-app
+    spec:
+      nodeSelector:
+        environment: production
+        workload: non-existent
+      containers:
+      - name: test-app
+        image: registry.redhat.io/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do echo 'Running...'; sleep 60; done"]
