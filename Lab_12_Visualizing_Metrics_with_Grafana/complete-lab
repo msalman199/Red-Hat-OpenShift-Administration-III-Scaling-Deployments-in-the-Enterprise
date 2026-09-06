@@ -1,0 +1,470 @@
+Video
+Lab Material
+Lab 12: Visualizing Metrics with Grafana
+Objectives
+By the end of this lab, you will be able to:
+
+• Install and configure Grafana on OpenShift using open-source tools • Create comprehensive dashboards to monitor cluster health and application performance • Configure data sources and connect Grafana to Prometheus metrics • Build custom visualizations for CPU, memory, network, and storage metrics • Analyze performance trends and identify potential issues using Grafana dashboards • Implement alerting rules and notification channels for proactive monitoring • Export and import dashboard configurations for reusability
+
+Prerequisites
+Before starting this lab, you should have:
+
+• Basic understanding of OpenShift concepts and CLI commands • Familiarity with Kubernetes monitoring concepts • Knowledge of YAML configuration files • Understanding of basic networking and HTTP concepts • Experience with command-line interfaces • Basic knowledge of Prometheus metrics and queries (PromQL)
+
+Lab Environment
+Ready-to-Use Cloud Machines: Al Nafi provides pre-configured Linux-based cloud machines with OpenShift cluster access. Simply click Start Lab to begin - no need to build your own VM or install additional software.
+
+Your lab environment includes: • OpenShift cluster with admin privileges • Pre-installed oc CLI tool • Internet connectivity for downloading Grafana components • Prometheus already deployed for metrics collection
+
+Task 1: Install and Configure Grafana on OpenShift
+Subtask 1.1: Verify OpenShift Cluster Access
+First, let's ensure you have proper access to your OpenShift cluster and verify the monitoring stack is available.
+
+Login to your OpenShift cluster:
+oc login --server=https://api.your-cluster.com:6443 --username=admin
+Verify cluster status:
+oc get nodes
+oc get pods -n openshift-monitoring
+Check if Prometheus is running:
+oc get pods -n openshift-monitoring | grep prometheus
+Subtask 1.2: Create Grafana Project
+Create a dedicated project for Grafana:
+oc new-project grafana-monitoring
+Verify project creation:
+oc project grafana-monitoring
+oc get project grafana-monitoring
+Subtask 1.3: Deploy Grafana Using OpenShift Templates
+Create Grafana deployment configuration:
+cat > grafana-deployment.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: grafana-monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin123"
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-piechart-panel"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+EOF
+Apply the deployment:
+oc apply -f grafana-deployment.yaml
+Create Grafana service:
+cat > grafana-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: grafana-monitoring
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP
+EOF
+Apply the service:
+oc apply -f grafana-service.yaml
+Subtask 1.4: Expose Grafana Service
+Create a route to access Grafana externally:
+oc expose service grafana-service --name=grafana-route
+Get the Grafana URL:
+oc get route grafana-route -o jsonpath='{.spec.host}'
+Verify Grafana deployment:
+oc get pods -l app=grafana
+oc get svc grafana-service
+oc get route grafana-route
+Subtask 1.5: Configure RBAC for Grafana
+Create service account for Grafana:
+oc create serviceaccount grafana-serviceaccount -n grafana-monitoring
+Create cluster role for metrics access:
+cat > grafana-clusterrole.yaml << 'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana-metrics-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/metrics", "services", "endpoints", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["extensions"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+EOF
+Apply cluster role:
+oc apply -f grafana-clusterrole.yaml
+Bind cluster role to service account:
+oc create clusterrolebinding grafana-metrics-reader \
+  --clusterrole=grafana-metrics-reader \
+  --serviceaccount=grafana-monitoring:grafana-serviceaccount
+Task 2: Create Dashboards to Display Cluster Health and Application Performance
+Subtask 2.1: Access Grafana Web Interface
+Get Grafana route URL:
+GRAFANA_URL=$(oc get route grafana-route -o jsonpath='{.spec.host}')
+echo "Grafana URL: http://$GRAFANA_URL"
+Access Grafana in your web browser:
+Open your web browser
+Navigate to the Grafana URL
+Login with username: admin and password: admin123
+Subtask 2.2: Configure Prometheus Data Source
+In Grafana web interface, navigate to Configuration > Data Sources
+
+Click "Add data source" and select "Prometheus"
+
+Configure Prometheus data source:
+
+Name: OpenShift Prometheus
+URL: https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091
+Access: Server (default)
+Skip TLS Verify: Check this option
+Get Prometheus service account token:
+
+# Get the token for authentication
+oc serviceaccounts get-token grafana-serviceaccount -n grafana-monitoring
+In Grafana, under Auth section:
+
+TLS Client Auth: Disabled
+With Credentials: Enabled
+Custom HTTP Headers: Add header
+Header: Authorization
+Value: Bearer [paste-token-here]
+Click "Save & Test" to verify connection
+
+Subtask 2.3: Create Cluster Health Dashboard
+Create a new dashboard by clicking the "+" icon and selecting "Dashboard"
+
+Add CPU Usage Panel:
+
+Click "Add new panel"
+Panel Title: Cluster CPU Usage
+Query:
+100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+Visualization: Stat
+Unit: Percent (0-100)
+Add Memory Usage Panel:
+
+Click "Add new panel"
+Panel Title: Cluster Memory Usage
+Query:
+(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+Visualization: Gauge
+Unit: Percent (0-100)
+Add Node Status Panel:
+
+Click "Add new panel"
+Panel Title: Node Status
+Query:
+up{job="node-exporter"}
+Visualization: Stat
+Value mappings: 1 = Up, 0 = Down
+Add Pod Status Panel:
+
+Click "Add new panel"
+Panel Title: Running Pods
+Query:
+sum(kube_pod_status_phase{phase="Running"})
+Visualization: Stat
+Subtask 2.4: Create Application Performance Dashboard
+Create a new dashboard for application metrics
+
+Add HTTP Request Rate Panel:
+
+Panel Title: HTTP Request Rate
+Query:
+sum(rate(http_requests_total[5m])) by (service)
+Visualization: Time series
+Legend: {{service}}
+Add Response Time Panel:
+
+Panel Title: Average Response Time
+Query:
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))
+Visualization: Time series
+Unit: Seconds
+Add Error Rate Panel:
+
+Panel Title: Error Rate
+Query:
+sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) * 100
+Visualization: Stat
+Unit: Percent (0-100)
+Subtask 2.5: Create Storage and Network Dashboard
+Create another dashboard for infrastructure metrics
+
+Add Disk Usage Panel:
+
+Panel Title: Disk Usage by Mount Point
+Query:
+100 - ((node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes)
+Visualization: Bar chart
+Legend: {{mountpoint}}
+Add Network Traffic Panel:
+
+Panel Title: Network Traffic
+Queries:
+# Receive
+sum(rate(node_network_receive_bytes_total[5m])) by (device)
+# Transmit  
+sum(rate(node_network_transmit_bytes_total[5m])) by (device)
+Visualization: Time series
+Unit: Bytes/sec
+Add Disk I/O Panel:
+
+Panel Title: Disk I/O Operations
+Queries:
+# Read operations
+sum(rate(node_disk_reads_completed_total[5m])) by (device)
+# Write operations
+sum(rate(node_disk_writes_completed_total[5m])) by (device)
+Visualization: Time series
+Subtask 2.6: Save and Organize Dashboards
+Save each dashboard with descriptive names:
+
+Cluster Health Overview
+Application Performance Metrics
+Infrastructure Monitoring
+Create dashboard folders:
+
+Navigate to Dashboards > Manage
+Click "New Folder"
+Create folders: "OpenShift Monitoring", "Applications"
+Move dashboards to appropriate folders
+
+Task 3: Analyze Performance Using Grafana
+Subtask 3.1: Set Up Dashboard Variables
+Open the Cluster Health Overview dashboard
+
+Add dashboard variables:
+
+Click dashboard settings (gear icon)
+Go to Variables tab
+Add variable:
+Name: namespace
+Type: Query
+Query: label_values(kube_pod_info, namespace)
+Multi-value: Enable
+Include All: Enable
+Update panel queries to use variables:
+
+sum(kube_pod_status_phase{phase="Running", namespace=~"$namespace"}) by (namespace)
+Subtask 3.2: Create Performance Analysis Queries
+Add Resource Utilization Trends Panel:
+
+Panel Title: CPU Utilization Trend (24h)
+Query:
+avg_over_time(100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)[24h:1h])
+Time Range: Last 24 hours
+Add Memory Pressure Analysis:
+
+Panel Title: Memory Pressure Indicators
+Queries:
+# Memory usage percentage
+(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+# Swap usage
+(1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100
+Add Container Resource Analysis:
+
+Panel Title: Top Resource Consuming Pods
+Query:
+topk(10, sum(rate(container_cpu_usage_seconds_total{container!="POD",container!=""}[5m])) by (pod, namespace))
+Subtask 3.3: Configure Alerting Rules
+Navigate to Alerting > Alert Rules
+
+Create High CPU Usage Alert:
+
+Rule Name: High CPU Usage
+Query:
+100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+Condition: IS ABOVE 80
+Evaluation: Every 1m for 5m
+Create High Memory Usage Alert:
+
+Rule Name: High Memory Usage
+Query:
+(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+Condition: IS ABOVE 85
+Evaluation: Every 1m for 5m
+Create Pod Restart Alert:
+
+Rule Name: Pod Restart Rate
+Query:
+increase(kube_pod_container_status_restarts_total[1h]) > 5
+Condition: IS ABOVE 5
+Subtask 3.4: Set Up Notification Channels
+Navigate to Alerting > Notification Channels
+
+Create Email Notification Channel:
+
+Name: Email Alerts
+Type: Email
+Email addresses: your-email@example.com
+Subject: OpenShift Alert: {{range .Alerts}}{{.Annotations.summary}}{{end}}
+Create Webhook Notification Channel:
+
+Name: Webhook Alerts
+Type: Webhook
+URL: http://your-webhook-endpoint.com/alerts
+HTTP Method: POST
+Subtask 3.5: Performance Analysis Techniques
+Create Performance Baseline Dashboard:
+
+Add panels showing normal operating ranges
+Use statistical functions like avg_over_time(), quantile_over_time()
+Set up comparison queries for different time periods
+Implement Capacity Planning Queries:
+
+# Predict CPU usage growth
+predict_linear(avg(100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))[7d:1h], 30*24*3600)
+
+# Memory growth prediction
+predict_linear(avg(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))[7d:1h], 30*24*3600)
+Create SLA Monitoring Dashboard:
+
+Availability Percentage:
+avg_over_time(up[30d]) * 100
+Response Time SLA:
+histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) < 0.5
+Subtask 3.6: Export and Import Dashboard Configurations
+Export dashboard JSON:
+
+Open dashboard
+Click share icon
+Go to Export tab
+Click "Save to file"
+Create dashboard backup script:
+
+cat > backup-dashboards.sh << 'EOF'
+#!/bin/bash
+GRAFANA_URL="http://$(oc get route grafana-route -o jsonpath='{.spec.host}')"
+API_KEY="your-api-key-here"
+
+# Get list of dashboards
+curl -H "Authorization: Bearer $API_KEY" \
+     "$GRAFANA_URL/api/search?type=dash-db" | \
+     jq -r '.[] | .uid' | \
+while read uid; do
+    echo "Backing up dashboard: $uid"
+    curl -H "Authorization: Bearer $API_KEY" \
+         "$GRAFANA_URL/api/dashboards/uid/$uid" | \
+         jq '.dashboard' > "dashboard-$uid.json"
+done
+EOF
+Make script executable and run:
+chmod +x backup-dashboards.sh
+./backup-dashboards.sh
+Troubleshooting Common Issues
+Issue 1: Grafana Pod Not Starting
+Symptoms: Pod remains in Pending or CrashLoopBackOff state
+
+Solution:
+
+# Check pod logs
+oc logs -l app=grafana
+
+# Check resource constraints
+oc describe pod -l app=grafana
+
+# Verify persistent volume claims
+oc get pvc
+Issue 2: Cannot Connect to Prometheus
+Symptoms: Data source test fails with connection errors
+
+Solution:
+
+# Verify Prometheus service
+oc get svc -n openshift-monitoring | grep prometheus
+
+# Check network policies
+oc get networkpolicy -n grafana-monitoring
+
+# Test connectivity from Grafana pod
+oc exec -it deployment/grafana -- curl -k https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/query?query=up
+Issue 3: Missing Metrics Data
+Symptoms: Panels show "No data" or empty graphs
+
+Solution:
+
+# Verify metric names in Prometheus
+oc exec -it deployment/grafana -- curl -k "https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/label/__name__/values"
+
+# Check time range settings in Grafana panels
+# Verify PromQL query syntax
+Issue 4: High Resource Usage
+Symptoms: Grafana consuming too much CPU/memory
+
+Solution:
+
+# Update resource limits
+oc patch deployment grafana -p '{"spec":{"template":{"spec":{"containers":[{"name":"grafana","resources":{"limits":{"memory":"1Gi","cpu":"500m"}}}]}}}}'
+
+# Enable query caching in Grafana configuration
+# Reduce dashboard refresh intervals
+Verification Steps
+Verify Grafana Installation:
+oc get pods -l app=grafana
+oc get svc grafana-service
+oc get route grafana-route
+Test Dashboard Functionality:
+
+Access Grafana web interface
+Verify all panels display data
+Test dashboard variables and filters
+Confirm alert rules are active
+Validate Monitoring Coverage:
+
+# Check available metrics
+oc exec -it deployment/grafana -- curl -k "https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/targets"
+
+# Verify data retention
+oc exec -it deployment/grafana -- curl -k "https://prometheus-k8s.openshift-monitoring.svc.cluster.local:9091/api/v1/query?query=up[24h]"
+Conclusion
+In this comprehensive lab, you have successfully:
+
+• Deployed Grafana on OpenShift using open-source tools and configured it with proper RBAC permissions • Created multiple dashboards covering cluster health, application performance, and infrastructure monitoring • Configured Prometheus integration to collect and visualize metrics from your OpenShift cluster • Implemented advanced monitoring with custom queries, variables, and performance analysis techniques • Set up alerting rules and notification channels for proactive monitoring and incident response • Learned troubleshooting techniques for common Grafana and monitoring issues
+
+Why This Matters: Effective monitoring and visualization are crucial for maintaining healthy OpenShift clusters in production environments. Grafana provides powerful capabilities for:
+
+Operational Visibility: Real-time insights into cluster and application performance
+Proactive Problem Detection: Early warning systems through alerting and trend analysis
+Capacity Planning: Data-driven decisions for resource allocation and scaling
+Performance Optimization: Identifying bottlenecks and optimization opportunities
+Compliance and SLA Monitoring: Tracking service level objectives and availability metrics
+The skills you've developed in this lab are essential for OpenShift administrators and DevOps engineers working with enterprise-scale deployments. These monitoring practices help ensure system reliability, optimize performance, and provide the observability needed for successful container orchestration at scale.
+
+Your Grafana dashboards now serve as a centralized monitoring solution that can be extended and customized for specific application requirements, making you well-prepared for real-world OpenShift monitoring scenarios.
