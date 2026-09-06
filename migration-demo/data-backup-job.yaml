@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: data-backup-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: backup
+        image: registry.redhat.io/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args:
+        - -c
+        - |
+          echo "Starting data backup..."
+          if [ -d "/data" ]; then
+            tar -czf /backup/data-backup.tar.gz -C /data .
+            echo "Data backup completed"
+          else
+            echo "No data directory found"
+          fi
+        volumeMounts:
+        - name: data-volume
+          mountPath: /data
+        - name: backup-volume
+          mountPath: /backup
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: postgresql
+      - name: backup-volume
+        emptyDir: {}
+      restartPolicy: Never

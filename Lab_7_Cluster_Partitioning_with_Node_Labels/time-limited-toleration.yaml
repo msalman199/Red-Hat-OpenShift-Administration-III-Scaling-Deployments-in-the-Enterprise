@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: time-limited-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: time-limited-app
+  template:
+    metadata:
+      labels:
+        app: time-limited-app
+    spec:
+      tolerations:
+      - key: "testing-only"
+        operator: "Equal"
+        value: "true"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      containers:
+      - name: temp-app
+        image: registry.redhat.io/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do echo 'Temporary application - will be evicted in 5 minutes'; sleep 30; done"]

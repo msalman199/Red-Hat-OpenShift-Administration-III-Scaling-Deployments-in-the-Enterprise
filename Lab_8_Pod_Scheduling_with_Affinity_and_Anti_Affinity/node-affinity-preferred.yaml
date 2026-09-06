@@ -1,0 +1,28 @@
+# Create file: node-affinity-preferred.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: east-preferred-pod
+  labels:
+    app: web-server
+spec:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: zone
+            operator: In
+            values:
+            - east
+  containers:
+  - name: web-server
+    image: nginx:1.21
+    resources:
+      requests:
+        memory: "32Mi"
+        cpu: "100m"
+      limits:
+        memory: "64Mi"
+        cpu: "200m"
