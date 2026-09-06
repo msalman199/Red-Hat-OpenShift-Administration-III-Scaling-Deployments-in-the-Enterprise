@@ -1,0 +1,516 @@
+Time Spent Today:
+3h 0m
+
+Start Lab
+✅ Connected
+Delete Lab
+SSH Access
+
+Video
+Lab Material
+Lab 14: Centralized Logging with EFK Stack
+Objectives
+By the end of this lab, you will be able to:
+
+• Understand the components and architecture of the EFK (Elasticsearch, Fluentd, Kibana) logging stack • Install and configure the EFK stack in an OpenShift environment • Configure Fluentd to collect logs from OpenShift applications and infrastructure • Access and navigate the Kibana web interface for log visualization • Create basic log queries and filters in Kibana • Troubleshoot common logging issues in OpenShift environments • Implement centralized logging best practices for enterprise applications
+
+Prerequisites
+Before starting this lab, you should have:
+
+• Basic understanding of OpenShift/Kubernetes concepts (pods, services, deployments) • Familiarity with YAML configuration files • Basic knowledge of Linux command line operations • Understanding of logging concepts and log formats • Access to an OpenShift cluster with cluster-admin privileges • Basic knowledge of JSON and log parsing concepts
+
+Lab Environment
+Ready-to-Use Cloud Machines: Al Nafi provides pre-configured Linux-based cloud machines with OpenShift already installed. Simply click Start Lab to begin - no need to build your own VM or install OpenShift from scratch.
+
+Your lab environment includes: • OpenShift 4.12+ cluster with cluster-admin access • Pre-installed oc CLI tool • Sample applications for log generation • All necessary networking and storage configurations
+
+Task 1: Install the EFK Stack in OpenShift
+Subtask 1.1: Verify OpenShift Cluster Status
+First, let's ensure your OpenShift cluster is running properly and you have the necessary permissions.
+
+Login to your OpenShift cluster:
+oc login -u admin -p admin https://api.cluster.local:6443
+Verify cluster status:
+oc get nodes
+oc get clusterversion
+Check available storage classes (required for Elasticsearch):
+oc get storageclass
+Subtask 1.2: Create the Logging Namespace
+Create a dedicated namespace for logging components:
+oc create namespace openshift-logging
+Label the namespace:
+oc label namespace openshift-logging openshift.io/cluster-logging="true"
+Verify namespace creation:
+oc get namespace openshift-logging
+Subtask 1.3: Install the Elasticsearch Operator
+Create the Elasticsearch Operator subscription:
+cat << EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: elasticsearch-operator
+  namespace: openshift-operators-redhat
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: elasticsearch-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+Wait for the operator to be installed:
+oc get csv -n openshift-operators-redhat | grep elasticsearch
+Verify the operator is running:
+oc get pods -n openshift-operators-redhat | grep elasticsearch
+Subtask 1.4: Install the Cluster Logging Operator
+Create the Cluster Logging Operator subscription:
+cat << EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cluster-logging
+  namespace: openshift-logging
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: cluster-logging
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+EOF
+Wait for the operator to be installed:
+oc get csv -n openshift-logging | grep cluster-logging
+Verify the operator is running:
+oc get pods -n openshift-logging | grep cluster-logging-operator
+Subtask 1.5: Deploy the EFK Stack
+Create the ClusterLogging custom resource:
+cat << EOF | oc apply -f -
+apiVersion: logging.coreos.com/v1
+kind: ClusterLogging
+metadata:
+  name: instance
+  namespace: openshift-logging
+spec:
+  managementState: Managed
+  logStore:
+    type: elasticsearch
+    retentionPolicy:
+      application:
+        maxAge: 7d
+      infra:
+        maxAge: 7d
+      audit:
+        maxAge: 7d
+    elasticsearch:
+      nodeCount: 3
+      storage:
+        storageClassName: gp2
+        size: 200G
+      resources:
+        limits:
+          memory: 16Gi
+        requests:
+          memory: 16Gi
+          cpu: 1
+      proxy:
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            memory: 256Mi
+            cpu: 100m
+      redundancyPolicy: SingleRedundancy
+  visualization:
+    type: kibana
+    kibana:
+      replicas: 1
+      resources:
+        limits:
+          memory: 2Gi
+        requests:
+          memory: 1Gi
+          cpu: 500m
+  collection:
+    logs:
+      type: fluentd
+      fluentd:
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+            cpu: 500m
+EOF
+Monitor the deployment progress:
+oc get pods -n openshift-logging -w
+Wait for all pods to be running (this may take 10-15 minutes):
+oc get pods -n openshift-logging
+Expected output should show:
+
+3 Elasticsearch pods (elasticsearch-cdm-xxx)
+1 Kibana pod (kibana-xxx)
+Multiple Fluentd pods (fluentd-xxx) - one per node
+1 Cluster logging operator pod
+Task 2: Configure Fluentd to Collect Logs from OpenShift Applications
+Subtask 2.1: Understand Fluentd Configuration
+Examine the default Fluentd configuration:
+oc get configmap fluentd -n openshift-logging -o yaml
+Check Fluentd DaemonSet configuration:
+oc describe daemonset fluentd -n openshift-logging
+Verify Fluentd is collecting logs from all nodes:
+oc get pods -n openshift-logging -l component=fluentd -o wide
+Subtask 2.2: Deploy Sample Applications for Log Generation
+Create a test namespace:
+oc create namespace log-test
+Deploy a sample application that generates logs:
+cat << EOF | oc apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-generator
+  namespace: log-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: log-generator
+  template:
+    metadata:
+      labels:
+        app: log-generator
+    spec:
+      containers:
+      - name: log-generator
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            echo "$(date): INFO - Application is running normally"
+            sleep 10
+            echo "$(date): WARN - This is a warning message"
+            sleep 5
+            echo "$(date): ERROR - This is an error message for testing"
+            sleep 15
+          done
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+EOF
+Deploy another application with JSON formatted logs:
+cat << EOF | oc apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: json-log-app
+  namespace: log-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: json-log-app
+  template:
+    metadata:
+      labels:
+        app: json-log-app
+    spec:
+      containers:
+      - name: json-logger
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            echo '{"timestamp":"'$(date -Iseconds)'","level":"info","message":"User login successful","user_id":"user123","ip":"192.168.1.100"}'
+            sleep 20
+            echo '{"timestamp":"'$(date -Iseconds)'","level":"error","message":"Database connection failed","error_code":"DB001","retry_count":3}'
+            sleep 30
+          done
+EOF
+Verify the applications are running:
+oc get pods -n log-test
+Check the logs are being generated:
+oc logs -f deployment/log-generator -n log-test
+Subtask 2.3: Verify Fluentd Log Collection
+Check Fluentd logs to ensure it's collecting from the new namespace:
+oc logs -l component=fluentd -n openshift-logging | grep log-test
+Verify Fluentd is processing logs:
+oc logs -l component=fluentd -n openshift-logging | tail -20
+Check Elasticsearch indices are being created:
+oc exec -n openshift-logging -c elasticsearch $(oc get pods -n openshift-logging -l component=elasticsearch -o jsonpath='{.items[0].metadata.name}') -- curl -s -k -H "Content-Type: application/json" -X GET "https://localhost:9200/_cat/indices?v"
+Subtask 2.4: Configure Custom Log Parsing (Optional)
+Create a custom Fluentd configuration for specific log parsing:
+cat << EOF | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-fluentd-config
+  namespace: openshift-logging
+data:
+  custom.conf: |
+    <filter kubernetes.var.log.containers.json-log-app**>
+      @type parser
+      key_name message
+      reserve_data true
+      <parse>
+        @type json
+        json_parser_error_class StandardError
+      </parse>
+    </filter>
+EOF
+Note: In a production environment, you would need to modify the Fluentd DaemonSet to include this custom configuration. For this lab, we'll use the default configuration.
+Task 3: View Logs in Kibana
+Subtask 3.1: Access Kibana Web Interface
+Get the Kibana route URL:
+oc get route kibana -n openshift-logging -o jsonpath='{.spec.host}'
+Create a route if it doesn't exist:
+oc expose service kibana -n openshift-logging
+Get your authentication token:
+oc whoami -t
+Access Kibana:
+Open a web browser
+Navigate to the Kibana URL from step 1
+Login using your OpenShift credentials
+Use the token from step 3 if prompted
+Subtask 3.2: Configure Kibana Index Patterns
+In Kibana, navigate to Management > Stack Management > Index Patterns
+
+Create index patterns for different log types:
+
+Application logs: app-*
+Infrastructure logs: infra-*
+Audit logs: audit-*
+For each index pattern:
+
+Click "Create index pattern"
+Enter the pattern name
+Select @timestamp as the time field
+Click "Create index pattern"
+Subtask 3.3: Explore Application Logs
+Navigate to Discover in Kibana
+
+Select the app- index pattern*
+
+Set the time range to "Last 1 hour"
+
+Search for logs from your test applications:
+
+In the search bar, enter: kubernetes.namespace_name:"log-test"
+Click the search button
+Filter logs by application:
+
+Add filter: kubernetes.container_name:"log-generator"
+Observe the different log levels (INFO, WARN, ERROR)
+Examine log structure:
+
+Click on a log entry to expand it
+Notice fields like:
+@timestamp
+kubernetes.namespace_name
+kubernetes.pod_name
+kubernetes.container_name
+message
+Subtask 3.4: Create Log Visualizations
+Navigate to Visualize in Kibana
+
+Create a log level distribution chart:
+
+Click "Create visualization"
+Select "Pie chart"
+Choose the app-* index
+Add aggregation:
+Bucket: Split slices
+Aggregation: Terms
+Field: level.keyword (if available) or create a scripted field
+Save the visualization as "Log Levels Distribution"
+Create a timeline of log events:
+
+Create a new visualization
+Select "Line chart"
+Choose the app-* index
+X-axis: Date histogram on @timestamp
+Y-axis: Count
+Save as "Log Events Timeline"
+Subtask 3.5: Create a Dashboard
+Navigate to Dashboard in Kibana
+
+Create a new dashboard:
+
+Click "Create dashboard"
+Add the visualizations you created
+Add a saved search for recent error logs
+Arrange the panels as desired
+Save the dashboard as "Application Monitoring Dashboard"
+Subtask 3.6: Set Up Log Alerts (Basic)
+Navigate to Stack Management > Watcher (if available)
+
+Create a simple watch for error logs:
+
+{
+  "trigger": {
+    "schedule": {
+      "interval": "1m"
+    }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "search_type": "query_then_fetch",
+        "indices": ["app-*"],
+        "body": {
+          "query": {
+            "bool": {
+              "must": [
+                {
+                  "match": {
+                    "message": "ERROR"
+                  }
+                },
+                {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-1m"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "compare": {
+      "ctx.payload.hits.total": {
+        "gt": 0
+      }
+    }
+  },
+  "actions": {
+    "log_error": {
+      "logging": {
+        "text": "Found {{ctx.payload.hits.total}} error logs in the last minute"
+      }
+    }
+  }
+}
+Troubleshooting Common Issues
+Issue 1: Elasticsearch Pods Not Starting
+Symptoms: Elasticsearch pods stuck in Pending or CrashLoopBackOff state
+
+Solutions:
+
+Check storage availability:
+oc get pv
+oc get pvc -n openshift-logging
+Verify node resources:
+oc describe nodes | grep -A 5 "Allocated resources"
+Check Elasticsearch logs:
+oc logs -l component=elasticsearch -n openshift-logging
+Issue 2: Fluentd Not Collecting Logs
+Symptoms: No logs appearing in Kibana
+
+Solutions:
+
+Check Fluentd pod status:
+oc get pods -l component=fluentd -n openshift-logging
+Examine Fluentd logs:
+oc logs -l component=fluentd -n openshift-logging | grep ERROR
+Verify log file permissions:
+oc exec -it $(oc get pods -l component=fluentd -n openshift-logging -o jsonpath='{.items[0].metadata.name}') -n openshift-logging -- ls -la /var/log/containers/
+Issue 3: Kibana Access Issues
+Symptoms: Cannot access Kibana web interface
+
+Solutions:
+
+Check Kibana pod status:
+oc get pods -l component=kibana -n openshift-logging
+Verify route exists:
+oc get route -n openshift-logging
+Check Kibana logs:
+oc logs -l component=kibana -n openshift-logging
+Performance Optimization Tips
+Elasticsearch Optimization
+Adjust heap size based on available memory:
+oc patch clusterlogging instance -n openshift-logging --type='merge' -p='{"spec":{"logStore":{"elasticsearch":{"resources":{"requests":{"memory":"8Gi"},"limits":{"memory":"8Gi"}}}}}}'
+Configure index lifecycle management:
+# Access Elasticsearch directly to configure ILM policies
+oc port-forward -n openshift-logging svc/elasticsearch 9200:9200
+Fluentd Optimization
+Adjust buffer settings for high-volume environments:
+# Add to Fluentd configuration
+<buffer>
+  @type file
+  path /var/log/fluentd-buffers/kubernetes.system.buffer
+  flush_mode interval
+  retry_type exponential_backoff
+  flush_thread_count 2
+  flush_interval 5s
+  retry_forever
+  retry_max_interval 30
+  chunk_limit_size 2M
+  queue_limit_length 8
+  overflow_action block
+</buffer>
+Security Considerations
+Network Security
+Ensure proper network policies:
+cat << EOF | oc apply -f -
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-logging-traffic
+  namespace: openshift-logging
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: openshift-logging
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: openshift-logging
+EOF
+Access Control
+Create role-based access for log viewing:
+cat << EOF | oc apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: log-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list"]
+EOF
+Bind the role to specific users:
+oc create clusterrolebinding log-reader-binding --clusterrole=log-reader --user=developer
+Conclusion
+In this lab, you have successfully:
+
+• Deployed a complete EFK stack in OpenShift, providing centralized logging capabilities for your cluster • Configured Fluentd to automatically collect logs from all applications and infrastructure components • Accessed and navigated Kibana to visualize and analyze log data effectively • Created custom visualizations and dashboards to monitor application health and performance • Implemented log filtering and searching to quickly identify issues and trends • Applied security and performance best practices for production logging environments
+
+Why This Matters: Centralized logging is crucial for modern containerized applications because:
+
+Observability: Provides visibility into application behavior across distributed systems
+Troubleshooting: Enables rapid identification and resolution of issues
+Compliance: Helps meet regulatory requirements for log retention and auditing
+Performance Monitoring: Allows tracking of application performance trends over time
+Security: Facilitates detection of security incidents and anomalous behavior
+The EFK stack you've implemented provides a robust, scalable solution for managing logs in enterprise OpenShift environments. This foundation will support your organization's monitoring, debugging, and compliance needs as your containerized applications grow and evolve.
+
+Next Steps: Consider exploring advanced features like log forwarding to external systems, custom log parsing rules, and integration with alerting systems like Prometheus AlertManager for comprehensive monitoring solutions.
