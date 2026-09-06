@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: production-database
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: production-database
+  template:
+    metadata:
+      labels:
+        app: production-database
+    spec:
+      nodeSelector:
+        environment: production
+        workload: database
+      containers:
+      - name: database
+        image: registry.redhat.io/rhel8/mysql-80:latest
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "rootpassword"
+        - name: MYSQL_DATABASE
+          value: "proddb"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        ports:
+        - containerPort: 3306

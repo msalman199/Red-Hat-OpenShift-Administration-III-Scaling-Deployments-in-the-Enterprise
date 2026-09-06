@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-toleration-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: no-toleration-app
+  template:
+    metadata:
+      labels:
+        app: no-toleration-app
+    spec:
+      containers:
+      - name: basic-app
+        image: registry.redhat.io/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do echo 'Basic application running...'; sleep 60; done"]

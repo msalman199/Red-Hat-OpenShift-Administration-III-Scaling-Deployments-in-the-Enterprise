@@ -1,0 +1,11 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: sample-app-restore-20260905-0347
+  namespace: openshift-adp
+spec:
+  backupName: sample-app-backup-20260905
+  includedNamespaces:
+  - sample-app-namespace
+  restorePVs: true
+  existingResourcePolicy: update

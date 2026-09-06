@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wildcard-toleration-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wildcard-toleration-app
+  template:
+    metadata:
+      labels:
+        app: wildcard-toleration-app
+    spec:
+      tolerations:
+      - key: "dedicated"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "environment"
+        operator: "Exists"
+        effect: "PreferNoSchedule"
+      containers:
+      - name: flexible-app
+        image: registry.redhat.io/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do echo 'Flexible application running...'; sleep 45; done"]

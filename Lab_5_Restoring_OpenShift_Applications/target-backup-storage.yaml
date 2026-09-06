@@ -1,0 +1,14 @@
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: cross-cluster-storage
+  namespace: openshift-adp
+spec:
+  provider: aws
+  objectStorage:
+    bucket: openshift-backup-bucket
+    prefix: cluster1-backups
+  config:
+    region: us-east-1
+    s3ForcePathStyle: "true"
+    s3Url: https://s3.amazonaws.com
