@@ -1,0 +1,12 @@
+Backup created on: Sat Sep  5 04:10:25 UTC 2026
+Project: migration-demo
+Cluster: https://api.rm2.thpm.p1.openshiftapps.com:6443
+
+Resources backed up:
+- Deployments: 0
+- Services: 0
+- Routes: 0
+- PVCs: 0
+- ConfigMaps: 0
+- Secrets: 0
+- ImageStreams: 0

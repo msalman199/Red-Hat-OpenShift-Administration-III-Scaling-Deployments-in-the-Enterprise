@@ -1,0 +1,24 @@
+# Create file: impossible-affinity.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: impossible-pod
+  labels:
+    app: impossible
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: nonexistent-label
+            operator: In
+            values:
+            - nonexistent-value
+  containers:
+  - name: app
+    image: nginx:1.21
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"

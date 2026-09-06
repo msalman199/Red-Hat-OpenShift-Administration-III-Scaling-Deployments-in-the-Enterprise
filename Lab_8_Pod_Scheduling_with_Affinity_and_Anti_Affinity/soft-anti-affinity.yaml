@@ -1,0 +1,42 @@
+# Create file: soft-anti-affinity.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache-service
+  labels:
+    app: cache-service
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: cache-service
+  template:
+    metadata:
+      labels:
+        app: cache-service
+        tier: cache
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - cache-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: cache
+        image: redis:6.2-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
