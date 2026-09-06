@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-stress-test
+  namespace: alerting-lab
+  labels:
+    app: memory-stress-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-stress-test
+  template:
+    metadata:
+      labels:
+        app: memory-stress-test
+    spec:
+      containers:
+      - name: stress
+        image: polinux/stress:latest
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+        command: ["stress"]
+        args: ["--vm", "1", "--vm-bytes", "200M", "--timeout", "300s"]

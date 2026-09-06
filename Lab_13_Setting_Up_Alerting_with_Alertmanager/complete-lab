@@ -1,0 +1,589 @@
+Time Spent Today:
+2h 30m
+
+Start Lab
+✅ Connected
+Delete Lab
+SSH Access
+
+Video
+Lab Material
+Lab 13: Setting Up Alerting with Alertmanager
+Objectives
+By the end of this lab, you will be able to:
+
+• Install and configure Alertmanager in OpenShift • Create and configure alerting rules for resource monitoring • Set up notification channels for alert delivery • Configure alerts for CPU and memory usage thresholds • Test alerting functionality by triggering threshold breaches • Verify alert notifications are properly received • Understand the integration between Prometheus and Alertmanager • Troubleshoot common alerting issues
+
+Prerequisites
+Before starting this lab, you should have:
+
+• Basic understanding of OpenShift/Kubernetes concepts • Familiarity with YAML configuration files • Knowledge of Prometheus monitoring concepts • Understanding of resource limits and requests • Basic command-line interface skills • Access to an OpenShift cluster with cluster-admin privileges
+
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines for this lab. Simply click Start Lab to access your environment. No need to build your own VM or install additional software - everything is ready to use!
+
+Your lab environment includes: • OpenShift cluster with administrative access • Pre-installed oc CLI tool • Prometheus Operator already deployed • Sample applications for testing
+
+Lab Tasks
+Task 1: Install and Configure Alertmanager in OpenShift
+Subtask 1.1: Verify Prometheus Operator Installation
+First, let's verify that the Prometheus Operator is installed and running in your cluster.
+
+Check if Prometheus Operator is installed:
+oc get pods -n openshift-monitoring | grep prometheus-operator
+Verify the monitoring namespace exists:
+oc get namespace openshift-monitoring
+List all monitoring components:
+oc get all -n openshift-monitoring
+Subtask 1.2: Create Alertmanager Configuration
+Create a new project for our custom alerting setup:
+oc new-project alerting-lab
+Create the Alertmanager configuration file:
+cat > alertmanager-config.yaml << 'EOF'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-config
+  namespace: alerting-lab
+type: Opaque
+stringData:
+  alertmanager.yml: |
+    global:
+      smtp_smarthost: 'localhost:587'
+      smtp_from: 'alertmanager@example.com'
+    
+    route:
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'web.hook'
+    
+    receivers:
+    - name: 'web.hook'
+      webhook_configs:
+      - url: 'http://webhook-receiver:8080/webhook'
+        send_resolved: true
+    
+    - name: 'email-notifications'
+      email_configs:
+      - to: 'admin@example.com'
+        subject: 'OpenShift Alert: {{ .GroupLabels.alertname }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          {{ end }}
+EOF
+Apply the Alertmanager configuration:
+oc apply -f alertmanager-config.yaml
+Subtask 1.3: Deploy Alertmanager Instance
+Create the Alertmanager deployment:
+cat > alertmanager-deployment.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: alerting-lab
+  labels:
+    app: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: quay.io/prometheus/alertmanager:v0.25.0
+        ports:
+        - containerPort: 9093
+        args:
+        - '--config.file=/etc/alertmanager/alertmanager.yml'
+        - '--storage.path=/alertmanager'
+        - '--web.external-url=http://localhost:9093'
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager
+        - name: storage-volume
+          mountPath: /alertmanager
+      volumes:
+      - name: config-volume
+        secret:
+          secretName: alertmanager-config
+      - name: storage-volume
+        emptyDir: {}
+EOF
+Apply the deployment:
+oc apply -f alertmanager-deployment.yaml
+Create a service for Alertmanager:
+cat > alertmanager-service.yaml << 'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: alerting-lab
+  labels:
+    app: alertmanager
+spec:
+  selector:
+    app: alertmanager
+  ports:
+  - port: 9093
+    targetPort: 9093
+    name: web
+  type: ClusterIP
+EOF
+Apply the service:
+oc apply -f alertmanager-service.yaml
+Subtask 1.4: Verify Alertmanager Installation
+Check if Alertmanager pod is running:
+oc get pods -n alerting-lab -l app=alertmanager
+Check the logs to ensure it started correctly:
+oc logs -n alerting-lab deployment/alertmanager
+Create a route to access Alertmanager UI:
+oc expose service alertmanager -n alerting-lab
+Get the route URL:
+oc get route alertmanager -n alerting-lab
+Task 2: Set Up Alerts for Resource Usage (CPU and Memory)
+Subtask 2.1: Create a Test Application
+Deploy a sample application for monitoring:
+cat > test-app.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resource-test-app
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: resource-test-app
+  template:
+    metadata:
+      labels:
+        app: resource-test-app
+    spec:
+      containers:
+      - name: stress-test
+        image: quay.io/prometheus/node-exporter:v1.5.0
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        ports:
+        - containerPort: 9100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resource-test-app
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  selector:
+    app: resource-test-app
+  ports:
+  - port: 9100
+    targetPort: 9100
+    name: metrics
+EOF
+Apply the test application:
+oc apply -f test-app.yaml
+Subtask 2.2: Create Prometheus Rules for CPU and Memory Alerts
+Create PrometheusRule for CPU alerts:
+cat > cpu-memory-alerts.yaml << 'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cpu-memory-alerts
+  namespace: alerting-lab
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  - name: resource-usage-alerts
+    rules:
+    - alert: HighCPUUsage
+      expr: |
+        (
+          sum(rate(container_cpu_usage_seconds_total{container!="POD",container!="",pod!=""}[5m])) by (pod, namespace) /
+          sum(container_spec_cpu_quota{container!="POD",container!="",pod!=""}/container_spec_cpu_period{container!="POD",container!="",pod!=""}) by (pod, namespace)
+        ) * 100 > 80
+      for: 2m
+      labels:
+        severity: warning
+        service: resource-monitoring
+      annotations:
+        summary: "High CPU usage detected"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has CPU usage above 80% for more than 2 minutes"
+    
+    - alert: HighMemoryUsage
+      expr: |
+        (
+          sum(container_memory_working_set_bytes{container!="POD",container!="",pod!=""}) by (pod, namespace) /
+          sum(container_spec_memory_limit_bytes{container!="POD",container!="",pod!=""}) by (pod, namespace)
+        ) * 100 > 80
+      for: 2m
+      labels:
+        severity: warning
+        service: resource-monitoring
+      annotations:
+        summary: "High memory usage detected"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has memory usage above 80% for more than 2 minutes"
+    
+    - alert: PodCrashLooping
+      expr: |
+        rate(kube_pod_container_status_restarts_total[15m]) > 0
+      for: 5m
+      labels:
+        severity: critical
+        service: resource-monitoring
+      annotations:
+        summary: "Pod is crash looping"
+        description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently"
+EOF
+Apply the PrometheusRule:
+oc apply -f cpu-memory-alerts.yaml
+Subtask 2.3: Configure Prometheus to Use Alertmanager
+Create a ServiceMonitor for our test application:
+cat > service-monitor.yaml << 'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: resource-test-monitor
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  selector:
+    matchLabels:
+      app: resource-test-app
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+EOF
+Apply the ServiceMonitor:
+oc apply -f service-monitor.yaml
+Create a Prometheus instance that uses our Alertmanager:
+cat > prometheus-instance.yaml << 'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: lab-prometheus
+  namespace: alerting-lab
+spec:
+  replicas: 1
+  serviceAccountName: prometheus-k8s
+  serviceMonitorSelector:
+    matchLabels:
+      app: resource-test-app
+  ruleSelector:
+    matchLabels:
+      prometheus: kube-prometheus
+      role: alert-rules
+  alerting:
+    alertmanagers:
+    - namespace: alerting-lab
+      name: alertmanager
+      port: web
+  resources:
+    requests:
+      memory: 400Mi
+      cpu: 100m
+  retention: 24h
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+EOF
+Apply the Prometheus instance:
+oc apply -f prometheus-instance.yaml
+Subtask 2.4: Create RBAC for Prometheus
+Create necessary RBAC permissions:
+cat > prometheus-rbac.yaml << 'EOF'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-k8s
+  namespace: alerting-lab
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-k8s
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-k8s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: alerting-lab
+EOF
+Apply the RBAC configuration:
+oc apply -f prometheus-rbac.yaml
+Task 3: Test Alerts by Creating Threshold Breaches
+Subtask 3.1: Create a Webhook Receiver for Testing
+Deploy a simple webhook receiver to capture alerts:
+cat > webhook-receiver.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-receiver
+  namespace: alerting-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-receiver
+  template:
+    metadata:
+      labels:
+        app: webhook-receiver
+    spec:
+      containers:
+      - name: webhook-receiver
+        image: quay.io/prometheus/alertmanager:v0.25.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cat > /tmp/webhook-server.py << 'PYEOF'
+          #!/usr/bin/env python3
+          import http.server
+          import socketserver
+          import json
+          from datetime import datetime
+          
+          class WebhookHandler(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  content_length = int(self.headers['Content-Length'])
+                  post_data = self.rfile.read(content_length)
+                  
+                  try:
+                      alert_data = json.loads(post_data.decode('utf-8'))
+                      timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                      print(f"\n[{timestamp}] ALERT RECEIVED:")
+                      print(f"Status: {alert_data.get('status', 'unknown')}")
+                      
+                      for alert in alert_data.get('alerts', []):
+                          print(f"  Alert: {alert.get('labels', {}).get('alertname', 'Unknown')}")
+                          print(f"  Summary: {alert.get('annotations', {}).get('summary', 'No summary')}")
+                          print(f"  Description: {alert.get('annotations', {}).get('description', 'No description')}")
+                          print("  ---")
+                      
+                  except Exception as e:
+                      print(f"Error processing alert: {e}")
+                  
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(b'{"status": "received"}')
+          
+          PORT = 8080
+          with socketserver.TCPServer(("", PORT), WebhookHandler) as httpd:
+              print(f"Webhook receiver listening on port {PORT}")
+              httpd.serve_forever()
+          PYEOF
+          
+          python3 /tmp/webhook-server.py
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-receiver
+  namespace: alerting-lab
+spec:
+  selector:
+    app: webhook-receiver
+  ports:
+  - port: 8080
+    targetPort: 8080
+EOF
+Apply the webhook receiver:
+oc apply -f webhook-receiver.yaml
+Subtask 3.2: Create CPU Stress Test
+Deploy a CPU stress test application:
+cat > cpu-stress-test.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-stress-test
+  namespace: alerting-lab
+  labels:
+    app: cpu-stress-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cpu-stress-test
+  template:
+    metadata:
+      labels:
+        app: cpu-stress-test
+    spec:
+      containers:
+      - name: stress
+        image: polinux/stress:latest
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        command: ["stress"]
+        args: ["--cpu", "2", "--timeout", "300s"]
+EOF
+Apply the CPU stress test:
+oc apply -f cpu-stress-test.yaml
+Subtask 3.3: Create Memory Stress Test
+Deploy a memory stress test application:
+cat > memory-stress-test.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-stress-test
+  namespace: alerting-lab
+  labels:
+    app: memory-stress-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-stress-test
+  template:
+    metadata:
+      labels:
+        app: memory-stress-test
+    spec:
+      containers:
+      - name: stress
+        image: polinux/stress:latest
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+        command: ["stress"]
+        args: ["--vm", "1", "--vm-bytes", "200M", "--timeout", "300s"]
+EOF
+Apply the memory stress test:
+oc apply -f memory-stress-test.yaml
+Subtask 3.4: Monitor and Verify Alerts
+Check if stress test pods are running:
+oc get pods -n alerting-lab | grep stress
+Monitor resource usage:
+oc top pods -n alerting-lab
+Check webhook receiver logs for incoming alerts:
+oc logs -n alerting-lab deployment/webhook-receiver -f
+Access Prometheus UI to check firing alerts:
+# Create route for Prometheus
+oc expose service lab-prometheus -n alerting-lab --name=prometheus-route
+
+# Get the route URL
+oc get route prometheus-route -n alerting-lab
+Access Alertmanager UI to see active alerts:
+# Get Alertmanager route URL
+oc get route alertmanager -n alerting-lab
+Subtask 3.5: Verify Alert Resolution
+Stop the stress tests to see alert resolution:
+oc delete deployment cpu-stress-test -n alerting-lab
+oc delete deployment memory-stress-test -n alerting-lab
+Monitor the webhook receiver for resolved alerts:
+oc logs -n alerting-lab deployment/webhook-receiver -f
+Check Alertmanager UI to confirm alerts are resolved
+Troubleshooting Tips
+Common Issues and Solutions
+Issue 1: Alertmanager pod not starting
+
+Check the configuration secret: oc describe secret alertmanager-config -n alerting-lab
+Verify YAML syntax in the alertmanager.yml configuration
+Check pod logs: oc logs -n alerting-lab deployment/alertmanager
+Issue 2: Alerts not firing
+
+Verify PrometheusRule is applied: oc get prometheusrule -n alerting-lab
+Check if Prometheus is scraping metrics: Access Prometheus UI and check targets
+Ensure ServiceMonitor selector matches service labels
+Issue 3: Webhook receiver not receiving alerts
+
+Verify service connectivity: oc get svc webhook-receiver -n alerting-lab
+Check Alertmanager configuration for correct webhook URL
+Test webhook endpoint manually using curl from within the cluster
+Issue 4: Metrics not available
+
+Ensure proper RBAC permissions are set for Prometheus service account
+Check if the application is exposing metrics on the correct port
+Verify ServiceMonitor configuration matches service specification
+Verification Commands
+# Check all resources in the alerting-lab namespace
+oc get all -n alerting-lab
+
+# Verify PrometheusRule is loaded
+oc describe prometheusrule cpu-memory-alerts -n alerting-lab
+
+# Check Prometheus targets
+# Access Prometheus UI -> Status -> Targets
+
+# Check Alertmanager status
+# Access Alertmanager UI -> Status
+
+# Monitor resource usage
+watch oc top pods -n alerting-lab
+Conclusion
+In this lab, you have successfully:
+
+• Installed and configured Alertmanager in OpenShift, creating a complete alerting infrastructure • Created comprehensive alerting rules for CPU and memory usage monitoring with appropriate thresholds • Set up notification channels using webhook receivers to capture and display alert notifications • Deployed and configured Prometheus to work seamlessly with Alertmanager for alert routing • Tested the entire alerting pipeline by creating controlled resource stress scenarios • Verified alert delivery and resolution through hands-on testing and monitoring
+
+Why This Matters:
+
+Alerting is a critical component of any production monitoring system. By implementing Alertmanager with Prometheus in OpenShift, you've created a robust foundation for:
+
+Proactive monitoring that notifies you before issues become critical
+Automated incident response that can trigger remediation workflows
+Compliance and SLA monitoring for enterprise environments
+Operational visibility across your entire OpenShift infrastructure
+The skills you've developed in this lab are essential for maintaining reliable, scalable applications in production environments. You now understand how to create custom alerting rules, configure notification channels, and test alerting scenarios - all crucial capabilities for OpenShift administrators and DevOps engineers.
+
+This foundation prepares you for more advanced monitoring scenarios, including integration with external systems, complex alert routing, and enterprise-grade notification systems.

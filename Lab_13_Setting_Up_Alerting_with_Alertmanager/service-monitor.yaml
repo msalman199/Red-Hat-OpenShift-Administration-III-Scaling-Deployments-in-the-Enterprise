@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: resource-test-monitor
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  selector:
+    matchLabels:
+      app: resource-test-app
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

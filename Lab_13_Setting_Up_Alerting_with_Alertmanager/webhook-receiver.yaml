@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-receiver
+  namespace: alerting-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-receiver
+  template:
+    metadata:
+      labels:
+        app: webhook-receiver
+    spec:
+      containers:
+      - name: webhook-receiver
+        image: quay.io/prometheus/alertmanager:v0.25.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cat > /tmp/webhook-server.py << 'PYEOF'
+          #!/usr/bin/env python3
+          import http.server
+          import socketserver
+          import json
+          from datetime import datetime
+          
+          class WebhookHandler(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  content_length = int(self.headers['Content-Length'])
+                  post_data = self.rfile.read(content_length)
+                  
+                  try:
+                      alert_data = json.loads(post_data.decode('utf-8'))
+                      timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                      print(f"\n[{timestamp}] ALERT RECEIVED:")
+                      print(f"Status: {alert_data.get('status', 'unknown')}")
+                      
+                      for alert in alert_data.get('alerts', []):
+                          print(f"  Alert: {alert.get('labels', {}).get('alertname', 'Unknown')}")
+                          print(f"  Summary: {alert.get('annotations', {}).get('summary', 'No summary')}")
+                          print(f"  Description: {alert.get('annotations', {}).get('description', 'No description')}")
+                          print("  ---")
+                      
+                  except Exception as e:
+                      print(f"Error processing alert: {e}")
+                  
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(b'{"status": "received"}')
+          
+          PORT = 8080
+          with socketserver.TCPServer(("", PORT), WebhookHandler) as httpd:
+              print(f"Webhook receiver listening on port {PORT}")
+              httpd.serve_forever()
+          PYEOF
+          
+          python3 /tmp/webhook-server.py
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webhook-receiver
+  namespace: alerting-lab
+spec:
+  selector:
+    app: webhook-receiver
+  ports:
+  - port: 8080
+    targetPort: 8080

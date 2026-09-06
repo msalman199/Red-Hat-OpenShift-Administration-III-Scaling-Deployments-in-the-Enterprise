@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resource-test-app
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: resource-test-app
+  template:
+    metadata:
+      labels:
+        app: resource-test-app
+    spec:
+      containers:
+      - name: stress-test
+        image: quay.io/prometheus/node-exporter:v1.5.0
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        ports:
+        - containerPort: 9100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resource-test-app
+  namespace: alerting-lab
+  labels:
+    app: resource-test-app
+spec:
+  selector:
+    app: resource-test-app
+  ports:
+  - port: 9100
+    targetPort: 9100
+    name: metrics
