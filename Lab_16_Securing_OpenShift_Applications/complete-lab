@@ -1,0 +1,471 @@
+eo
+Lab Material
+Lab 16: Securing OpenShift Applications
+Objectives
+By the end of this lab, students will be able to:
+
+• Understand Security Context Constraints (SCCs) and their role in OpenShift security • Create and configure custom Security Context Constraints for specific workload requirements • Assign SCCs to service accounts and manage security policies • Deploy and test applications with different security configurations • Troubleshoot common security-related deployment issues in OpenShift • Implement security best practices for containerized applications
+
+Prerequisites
+Before starting this lab, students should have:
+
+• Basic understanding of OpenShift/Kubernetes concepts (pods, deployments, services) • Familiarity with YAML configuration files • Knowledge of Linux command line operations • Understanding of container security concepts • Access to OpenShift CLI (oc) tools • Basic knowledge of service accounts and RBAC concepts
+
+Ready-to-Use Cloud Machines
+Al Nafi provides pre-configured Linux-based cloud machines with OpenShift cluster access. Simply click Start Lab to begin - no need to build your own virtual machine or install additional software. Your lab environment includes:
+
+• OpenShift cluster with admin privileges • Pre-installed OpenShift CLI (oc) tools • Sample applications and configuration files • All necessary permissions to create and modify security policies
+
+Lab Environment Setup
+Task 0: Verify Lab Environment
+Before beginning the main tasks, let's verify our lab environment is ready.
+
+Subtask 0.1: Check OpenShift Cluster Access
+Open a terminal in your cloud machine
+Verify you're logged into the OpenShift cluster:
+oc whoami
+oc cluster-info
+Check your current project:
+oc project
+If no project is set, create a new project for this lab:
+oc new-project security-lab
+Subtask 0.2: Examine Default Security Context Constraints
+List all available SCCs in the cluster:
+oc get scc
+Examine the details of the default restricted SCC:
+oc describe scc restricted
+View the privileged SCC for comparison:
+oc describe scc privileged
+Task 1: Create and Apply a Custom SCC for Privileged Workloads
+Security Context Constraints (SCCs) control the security context under which pods run. In this task, we'll create a custom SCC that allows specific privileged operations while maintaining security.
+
+Subtask 1.1: Design the Custom SCC
+Create a directory for our lab files:
+mkdir ~/security-lab
+cd ~/security-lab
+Create a custom SCC configuration file:
+cat > custom-privileged-scc.yaml << 'EOF'
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: custom-privileged-scc
+  annotations:
+    kubernetes.io/description: "Custom SCC for privileged workloads with specific capabilities"
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: true
+allowedCapabilities:
+- SYS_ADMIN
+- NET_ADMIN
+- SYS_TIME
+defaultAddCapabilities: []
+fsGroup:
+  type: RunAsAny
+priority: 10
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+- KILL
+- MKNOD
+- SETUID
+- SETGID
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: RunAsAny
+users: []
+groups: []
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- hostPath
+- persistentVolumeClaim
+- projected
+- secret
+EOF
+Subtask 1.2: Apply the Custom SCC
+Apply the custom SCC to the cluster:
+oc apply -f custom-privileged-scc.yaml
+Verify the SCC was created successfully:
+oc get scc custom-privileged-scc
+Examine the details of your custom SCC:
+oc describe scc custom-privileged-scc
+Subtask 1.3: Create a Moderate Security SCC
+Let's also create a moderate security SCC for comparison:
+
+Create a moderate security SCC:
+cat > moderate-security-scc.yaml << 'EOF'
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: moderate-security-scc
+  annotations:
+    kubernetes.io/description: "Moderate security SCC with limited privileges"
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities:
+- NET_BIND_SERVICE
+defaultAddCapabilities: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+priority: 5
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+- ALL
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+users: []
+groups: []
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- persistentVolumeClaim
+- projected
+- secret
+EOF
+Apply the moderate security SCC:
+oc apply -f moderate-security-scc.yaml
+Verify both custom SCCs exist:
+oc get scc | grep -E "(custom-privileged|moderate-security)"
+Task 2: Assign SCC to Service Accounts
+Service accounts are used to control which SCCs pods can use. In this task, we'll create service accounts and assign our custom SCCs to them.
+
+Subtask 2.1: Create Service Accounts
+Create a service account for privileged workloads:
+oc create serviceaccount privileged-sa
+Create a service account for moderate security workloads:
+oc create serviceaccount moderate-sa
+Create a service account for restricted workloads:
+oc create serviceaccount restricted-sa
+Verify the service accounts were created:
+oc get serviceaccounts
+Subtask 2.2: Assign SCCs to Service Accounts
+Add the privileged service account to the custom privileged SCC:
+oc adm policy add-scc-to-user custom-privileged-scc -z privileged-sa
+Add the moderate service account to the moderate security SCC:
+oc adm policy add-scc-to-user moderate-security-scc -z moderate-sa
+The restricted service account will use the default restricted SCC (no action needed)
+
+Verify the SCC assignments:
+
+oc describe scc custom-privileged-scc | grep -A 10 Users
+oc describe scc moderate-security-scc | grep -A 10 Users
+Subtask 2.3: Create Role-Based Access Control
+Create a role that allows using specific SCCs:
+cat > scc-role.yaml << 'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scc-user
+rules:
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+  resourceNames:
+  - custom-privileged-scc
+  - moderate-security-scc
+  - restricted
+EOF
+Apply the role:
+oc apply -f scc-role.yaml
+Bind the role to our service accounts:
+oc create rolebinding privileged-sa-binding --role=scc-user --serviceaccount=security-lab:privileged-sa
+oc create rolebinding moderate-sa-binding --role=scc-user --serviceaccount=security-lab:moderate-sa
+oc create rolebinding restricted-sa-binding --role=scc-user --serviceaccount=security-lab:restricted-sa
+Task 3: Test Security Configurations by Deploying Pods with Different SCCs
+Now we'll test our security configurations by deploying pods with different security requirements and observing how SCCs affect their behavior.
+
+Subtask 3.1: Deploy a Privileged Pod
+Create a privileged pod configuration:
+cat > privileged-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privileged-test-pod
+  labels:
+    app: privileged-test
+spec:
+  serviceAccountName: privileged-sa
+  containers:
+  - name: privileged-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'Privileged pod running...'; sleep 30; done"]
+    securityContext:
+      privileged: true
+      capabilities:
+        add:
+        - SYS_ADMIN
+        - NET_ADMIN
+    volumeMounts:
+    - name: host-root
+      mountPath: /host
+      readOnly: true
+  volumes:
+  - name: host-root
+    hostPath:
+      path: /
+      type: Directory
+  restartPolicy: Never
+EOF
+Deploy the privileged pod:
+oc apply -f privileged-pod.yaml
+Check the pod status:
+oc get pods privileged-test-pod
+Verify which SCC was assigned:
+oc get pod privileged-test-pod -o yaml | grep "openshift.io/scc"
+Subtask 3.2: Deploy a Moderate Security Pod
+Create a moderate security pod configuration:
+cat > moderate-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: moderate-test-pod
+  labels:
+    app: moderate-test
+spec:
+  serviceAccountName: moderate-sa
+  containers:
+  - name: moderate-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'Moderate security pod running...'; sleep 30; done"]
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      capabilities:
+        add:
+        - NET_BIND_SERVICE
+        drop:
+        - ALL
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+  restartPolicy: Never
+EOF
+Deploy the moderate security pod:
+oc apply -f moderate-pod.yaml
+Check the pod status:
+oc get pods moderate-test-pod
+Verify the assigned SCC:
+oc get pod moderate-test-pod -o yaml | grep "openshift.io/scc"
+Subtask 3.3: Deploy a Restricted Pod
+Create a restricted pod configuration:
+cat > restricted-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: restricted-test-pod
+  labels:
+    app: restricted-test
+spec:
+  serviceAccountName: restricted-sa
+  containers:
+  - name: restricted-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'Restricted pod running...'; sleep 30; done"]
+    securityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+  restartPolicy: Never
+EOF
+Deploy the restricted pod:
+oc apply -f restricted-pod.yaml
+Check the pod status:
+oc get pods restricted-test-pod
+Verify the assigned SCC:
+oc get pod restricted-test-pod -o yaml | grep "openshift.io/scc"
+Subtask 3.4: Test Security Violations
+Let's test what happens when we try to deploy a pod that violates security constraints.
+
+Create a pod that attempts to use privileged features with a restricted service account:
+cat > violation-test-pod.yaml << 'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: violation-test-pod
+  labels:
+    app: violation-test
+spec:
+  serviceAccountName: restricted-sa
+  containers:
+  - name: violation-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'This should fail...'; sleep 30; done"]
+    securityContext:
+      privileged: true
+      runAsUser: 0
+  restartPolicy: Never
+EOF
+Attempt to deploy this pod:
+oc apply -f violation-test-pod.yaml
+Check if the pod was created and its status:
+oc get pods violation-test-pod
+oc describe pod violation-test-pod
+The pod should fail to start due to security constraint violations.
+
+Subtask 3.5: Verify Pod Security Contexts
+Check all running pods and their assigned SCCs:
+oc get pods -o custom-columns=NAME:.metadata.name,SCC:.metadata.annotations."openshift\.io/scc",STATUS:.status.phase
+Examine the security context of the privileged pod:
+oc exec privileged-test-pod -- id
+oc exec privileged-test-pod -- ls -la /host
+Examine the security context of the moderate security pod:
+oc exec moderate-test-pod -- id
+oc exec moderate-test-pod -- whoami
+Examine the security context of the restricted pod:
+oc exec restricted-test-pod -- id
+oc exec restricted-test-pod -- whoami
+Subtask 3.6: Test Capability Differences
+Test privileged capabilities in the privileged pod:
+oc exec privileged-test-pod -- capsh --print
+Test capabilities in the moderate security pod:
+oc exec moderate-test-pod -- capsh --print
+Test capabilities in the restricted pod:
+oc exec restricted-test-pod -- capsh --print
+Compare the output to see the differences in granted capabilities.
+
+Task 4: Advanced Security Testing and Monitoring
+Subtask 4.1: Create a Deployment with Security Constraints
+Create a deployment that uses our custom SCC:
+cat > secure-deployment.yaml << 'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app-deployment
+  labels:
+    app: secure-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secure-app
+  template:
+    metadata:
+      labels:
+        app: secure-app
+    spec:
+      serviceAccountName: moderate-sa
+      containers:
+      - name: secure-app
+        image: registry.access.redhat.com/ubi8/ubi:latest
+        command: ["/bin/bash"]
+        args: ["-c", "while true; do echo 'Secure app running on pod:' $(hostname); sleep 60; done"]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+EOF
+Deploy the secure application:
+oc apply -f secure-deployment.yaml
+Verify the deployment:
+oc get deployment secure-app-deployment
+oc get pods -l app=secure-app
+Subtask 4.2: Monitor Security Events
+Check for security-related events:
+oc get events --field-selector reason=FailedCreate
+oc get events --field-selector reason=SecurityContextConstraintsAdmission
+View logs from our test pods:
+oc logs privileged-test-pod --tail=5
+oc logs moderate-test-pod --tail=5
+oc logs restricted-test-pod --tail=5
+Subtask 4.3: Security Audit and Cleanup
+List all SCCs and their users:
+echo "=== Custom Privileged SCC ==="
+oc describe scc custom-privileged-scc | grep -A 20 "Users:"
+
+echo "=== Moderate Security SCC ==="
+oc describe scc moderate-security-scc | grep -A 20 "Users:"
+Check which pods are using which SCCs:
+oc get pods -o custom-columns=NAME:.metadata.name,SCC:.metadata.annotations."openshift\.io/scc",SA:.spec.serviceAccountName
+Clean up test resources (optional):
+# Delete test pods
+oc delete pod privileged-test-pod moderate-test-pod restricted-test-pod violation-test-pod
+
+# Delete deployment
+oc delete deployment secure-app-deployment
+
+# Keep SCCs and service accounts for reference
+Troubleshooting Common Issues
+Issue 1: Pod Fails to Start Due to SCC Violations
+Symptoms: Pod remains in Pending or CreateContainerConfigError state
+
+Solution:
+
+Check pod events:
+oc describe pod <pod-name>
+Verify service account has access to appropriate SCC:
+oc describe scc <scc-name>
+Check if the security context in the pod spec matches SCC requirements
+Issue 2: Service Account Cannot Use SCC
+Symptoms: Error messages about insufficient permissions
+
+Solution:
+
+Verify SCC assignment:
+oc adm policy add-scc-to-user <scc-name> -z <service-account-name>
+Check role bindings:
+oc get rolebindings
+Issue 3: Privileged Operations Fail
+Symptoms: Operations requiring elevated privileges fail inside containers
+
+Solution:
+
+Verify the pod is using the correct SCC:
+oc get pod <pod-name> -o yaml | grep "openshift.io/scc"
+Check if required capabilities are granted in the SCC
+Key Security Best Practices
+• Principle of Least Privilege: Always use the most restrictive SCC that allows your application to function • Service Account Isolation: Create dedicated service accounts for different security requirements • Regular Auditing: Periodically review SCC assignments and usage • Capability Management: Only grant necessary capabilities, drop all others • Non-Root Execution: Run containers as non-root users whenever possible • Read-Only Filesystems: Use read-only root filesystems when applications don't need write access
+
+Conclusion
+In this lab, you have successfully:
+
+• Created custom Security Context Constraints that balance security with functionality requirements • Assigned SCCs to service accounts to control pod security policies at the account level • Deployed and tested applications with different security configurations to understand SCC behavior • Identified security violations and learned how OpenShift prevents unauthorized privilege escalation • Implemented security monitoring to track and audit security-related events • Applied security best practices for containerized applications in OpenShift
+
+Understanding and properly implementing Security Context Constraints is crucial for maintaining a secure OpenShift environment. SCCs provide fine-grained control over what security contexts pods can use, helping prevent privilege escalation attacks while allowing legitimate applications to function with necessary permissions.
+
+The skills you've learned in this lab are essential for:
+
+Enterprise Security Compliance: Meeting organizational security requirements
+Multi-Tenant Environments: Isolating workloads with different security needs
+Regulatory Compliance: Satisfying industry-specific security standards
+Risk Management: Reducing the attack surface of containerized applications
+These security practices form the foundation for running production workloads safely in OpenShift environments, making this knowledge invaluable for OpenShift administrators and security professionals.
