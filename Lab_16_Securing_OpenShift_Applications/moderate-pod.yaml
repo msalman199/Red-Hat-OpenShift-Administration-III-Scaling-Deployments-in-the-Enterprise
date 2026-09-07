@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: moderate-test-pod
+  labels:
+    app: moderate-test
+spec:
+  serviceAccountName: moderate-sa
+  containers:
+  - name: moderate-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'Moderate security pod running...'; sleep 30; done"]
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1001
+      capabilities:
+        add:
+        - NET_BIND_SERVICE
+        drop:
+        - ALL
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+  restartPolicy: Never
