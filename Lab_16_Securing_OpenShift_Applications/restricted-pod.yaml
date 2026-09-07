@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: restricted-test-pod
+  labels:
+    app: restricted-test
+spec:
+  serviceAccountName: restricted-sa
+  containers:
+  - name: restricted-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'Restricted pod running...'; sleep 30; done"]
+    securityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: false
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+  restartPolicy: Never
