@@ -1,0 +1,370 @@
+Querying and Analyzing Logs in Kibana
+Objectives
+By the end of this lab, students will be able to:
+
+• Query and filter logs in Kibana using various search techniques and filters • Create meaningful visualizations from log data to identify patterns and trends • Build comprehensive dashboards for monitoring application logs • Understand log analysis best practices for troubleshooting and monitoring • Configure alerts and saved searches for proactive log monitoring
+
+Prerequisites
+Before starting this lab, students should have:
+
+• Basic understanding of Linux command line operations • Familiarity with log file formats and structure • Basic knowledge of Elasticsearch concepts (indices, documents, fields) • Understanding of web application architecture • Previous experience with Kibana interface navigation
+
+Lab Environment Setup
+Ready-to-Use Cloud Machines: Al Nafi provides pre-configured Linux-based cloud machines with the complete ELK stack (Elasticsearch, Logstash, Kibana) already installed and running. Simply click Start Lab to access your environment - no need to build your own VM or install software.
+
+Your lab environment includes: • Ubuntu 20.04 LTS with ELK Stack 8.x • Sample application logs pre-loaded • Kibana accessible via web browser • All necessary tools and dependencies installed
+
+Task 1: Query Logs in Kibana Based on Specific Filters
+Subtask 1.1: Access Kibana and Explore Sample Data
+Open your web browser and navigate to Kibana:
+
+http://localhost:5601
+Log in to Kibana using the default credentials:
+
+Username: elastic
+Password: changeme
+Navigate to Discover by clicking on the hamburger menu (☰) and selecting "Discover"
+
+Verify the index pattern is set to logstash-* or logs-* in the dropdown at the top left
+
+Examine the sample data by scrolling through the log entries to understand the structure:
+
+Timestamp fields
+Log levels (INFO, WARN, ERROR, DEBUG)
+Source applications
+Message content
+Subtask 1.2: Create Basic Text Queries
+Search for error messages using the search bar at the top:
+
+level:ERROR
+Refine your search to find specific error types:
+
+level:ERROR AND message:"database connection"
+Search for multiple log levels using OR operator:
+
+level:ERROR OR level:WARN
+Use wildcard searches to find patterns:
+
+message:*timeout*
+Search within a specific time range by clicking the time picker in the top right and selecting "Last 24 hours"
+
+Subtask 1.3: Apply Advanced Filters
+Add a field filter by clicking the "+" icon next to any field in the left sidebar:
+
+Select host.name field
+Choose "is" operator
+Enter a specific hostname
+Create a range filter for response times:
+
+Click "Add filter" button
+Select response_time field
+Choose "is between" operator
+Enter range: 1000 to 5000 (milliseconds)
+Combine multiple filters by adding another filter:
+
+Field: http.response.status_code
+Operator: "is one of"
+Values: 404, 500, 503
+Save your search by clicking "Save" in the top menu:
+
+Name: "Error Analysis Search"
+Description: "Errors and warnings with slow response times"
+Subtask 1.4: Use KQL (Kibana Query Language) for Complex Queries
+Switch to KQL if not already enabled (toggle in search bar)
+
+Query for failed authentication attempts:
+
+message:"authentication failed" and source.ip:*
+Find logs from specific applications:
+
+service.name:"web-app" and log.level:ERROR
+Search for patterns in user agents:
+
+user_agent.name:"Chrome" and http.response.status_code >= 400
+Create a complex query combining multiple conditions:
+
+(log.level:ERROR or log.level:WARN) and @timestamp >= "2024-01-01" and not message:"expected error"
+Task 2: Create Visualizations Based on Log Data
+Subtask 2.1: Create a Log Level Distribution Chart
+Navigate to Visualize from the main menu
+
+Create a new visualization by clicking "Create visualization"
+
+Select "Pie chart" from the visualization types
+
+Configure the pie chart:
+
+Index pattern: logstash-*
+Metrics: Count
+Buckets: Split slices
+Aggregation: Terms
+Field: log.level.keyword
+Size: 10
+Apply changes and observe the distribution of log levels
+
+Save the visualization:
+
+Title: "Log Level Distribution"
+Description: "Distribution of log levels across all applications"
+Subtask 2.2: Build a Timeline of Error Occurrences
+Create a new visualization and select "Line chart"
+
+Configure the line chart:
+
+Index pattern: logstash-*
+Y-axis: Count
+X-axis: Date Histogram
+Field: @timestamp
+Interval: Auto
+Add a filter to show only errors:
+
+Click "Add filter"
+Field: log.level.keyword
+Value: ERROR
+Customize the chart:
+
+Add title: "Error Occurrences Over Time"
+Change line color to red
+Enable grid lines
+Save the visualization as "Error Timeline"
+
+Subtask 2.3: Create a Top Errors Table
+Create a new "Data table" visualization
+
+Configure the table:
+
+Metrics: Count
+Buckets: Split rows
+Aggregation: Terms
+Field: message.keyword
+Size: 20
+Order: Descending
+Add a filter for error level:
+
+log.level:ERROR
+Add another bucket for split rows:
+
+Sub-aggregation: Terms
+Field: service.name.keyword
+Size: 5
+Format the table:
+
+Show totals
+Enable pagination
+Sort by count descending
+Save as "Top Error Messages"
+
+Subtask 2.4: Build a Geographic Distribution Map
+Create a "Maps" visualization
+
+Add a layer:
+
+Select "Documents"
+Index pattern: logstash-*
+Configure the map:
+
+Geospatial field: geoip.location
+Tooltip fields: source.ip, geoip.country_name, geoip.city_name
+Add filters to show only relevant traffic:
+
+http.response.status_code >= 400
+Customize the map:
+
+Change symbol size based on document count
+Adjust color scheme
+Set appropriate zoom level
+Save as "Geographic Error Distribution"
+
+Task 3: Set Up Dashboards for Application Logs
+Subtask 3.1: Create a Comprehensive Log Monitoring Dashboard
+Navigate to Dashboard from the main menu
+
+Create a new dashboard by clicking "Create dashboard"
+
+Add your saved visualizations:
+
+Click "Add from library"
+Select "Log Level Distribution"
+Select "Error Timeline"
+Select "Top Error Messages"
+Select "Geographic Error Distribution"
+Arrange the visualizations:
+
+Drag and resize panels for optimal layout
+Place the timeline at the top for time-based context
+Position the pie chart and table side by side
+Place the map at the bottom
+Subtask 3.2: Add Real-time Monitoring Panels
+Add a new visualization panel directly to the dashboard:
+
+Click "Create panel"
+Select "Metric"
+Configure a key metric:
+
+Metric: Count
+Add filter: log.level:ERROR
+Custom label: "Total Errors"
+Create another metric panel:
+
+Metric: Unique count
+Field: source.ip.keyword
+Custom label: "Unique Error Sources"
+Add a gauge visualization:
+
+Select "Gauge"
+Metric: Average
+Field: response_time
+Custom label: "Average Response Time"
+Set color ranges: Green (0-1000), Yellow (1000-3000), Red (3000+)
+Subtask 3.3: Configure Dashboard Filters and Controls
+Add global filters to the dashboard:
+
+Click "Add filter"
+Create filters for:
+Time range selector
+Service name dropdown
+Log level selector
+Create a controls panel:
+
+Click "Create panel" → "Controls"
+Add dropdown control for service.name.keyword
+Add range slider for response_time
+Configure auto-refresh:
+
+Click the refresh icon in the top menu
+Set auto-refresh to 30 seconds
+Enable "Refresh data when dashboard loads"
+Subtask 3.4: Set Up Alerts and Saved Searches
+Create a saved search for critical errors:
+
+Go to Discover
+Create query: log.level:ERROR AND message:*critical*
+Save as "Critical Errors"
+Set up a Watcher alert (if available):
+
+Navigate to Stack Management → Watcher
+Create new watch:
+{
+  "trigger": {
+    "schedule": {
+      "interval": "1m"
+    }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "search_type": "query_then_fetch",
+        "indices": ["logstash-*"],
+        "body": {
+          "query": {
+            "bool": {
+              "must": [
+                {
+                  "match": {
+                    "log.level": "ERROR"
+                  }
+                },
+                {
+                  "range": {
+                    "@timestamp": {
+                      "gte": "now-5m"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "compare": {
+      "ctx.payload.hits.total": {
+        "gt": 10
+      }
+    }
+  },
+  "actions": {
+    "send_email": {
+      "email": {
+        "to": ["admin@company.com"],
+        "subject": "High Error Rate Alert",
+        "body": "More than 10 errors detected in the last 5 minutes"
+      }
+    }
+  }
+}
+Save the dashboard:
+
+Click "Save" in the top menu
+Title: "Application Log Monitoring Dashboard"
+Description: "Comprehensive monitoring of application logs with real-time metrics"
+Save with time filter
+Subtask 3.5: Create Application-Specific Dashboards
+Create a focused dashboard for web application logs:
+
+New dashboard: "Web Application Logs"
+Add filter: service.name:"web-app"
+Add relevant visualizations:
+
+HTTP status code distribution (pie chart)
+Response time trends (line chart)
+Top requested URLs (data table)
+User agent analysis (tag cloud)
+Configure specific metrics:
+
+4xx error rate
+5xx error rate
+Average response time by endpoint
+Unique visitors count
+Troubleshooting Tips
+Common Issues and Solutions
+Issue: No data appearing in Kibana
+
+Solution: Check if Elasticsearch is running: sudo systemctl status elasticsearch
+Verify index patterns exist: Go to Stack Management → Index Patterns
+Issue: Visualizations not loading
+
+Solution: Refresh the browser cache and check the time range filter
+Ensure the selected index pattern contains data for the chosen time period
+Issue: Slow query performance
+
+Solution: Add more specific filters to reduce the data set
+Use shorter time ranges for complex queries
+Consider using sampled data for large datasets
+Issue: Filters not working as expected
+
+Solution: Check field mapping types (text vs keyword)
+Use .keyword suffix for exact matches on text fields
+Verify filter syntax and operators
+Best Practices for Log Analysis
+Query Optimization
+Use specific time ranges to improve performance
+Apply filters early in your query chain
+Use field existence checks: _exists_:field_name
+Leverage index patterns effectively
+Visualization Design
+Choose appropriate chart types for your data
+Use consistent color schemes across dashboards
+Include meaningful titles and descriptions
+Set appropriate refresh intervals
+Dashboard Organization
+Group related visualizations logically
+Use consistent time ranges across panels
+Implement proper access controls
+Document dashboard purposes and usage
+Conclusion
+In this comprehensive lab, you have successfully:
+
+• Mastered log querying techniques in Kibana using both simple text searches and advanced KQL queries to filter and find specific log entries, error messages, and patterns across your application infrastructure
+
+• Created meaningful visualizations from raw log data, including distribution charts, timelines, tables, and geographic maps that transform complex log information into easily understandable visual insights
+
+• Built comprehensive dashboards that provide real-time monitoring capabilities for application logs, complete with interactive filters, controls, and automated refresh functionality
+
+• Implemented monitoring best practices including saved searches, alerts, and application-specific dashboards that enable proactive identification and resolution of issues
+
+These skills are essential for modern DevOps and system administration roles, particularly in enterprise environments where log analysis is critical for maintaining application performance, security, and reliability. The ability to quickly identify patterns, troubleshoot issues, and create actionable insights from log data directly supports business continuity and operational excellence.
+
+Your newly acquired Kibana expertise will enable you to effectively monitor distributed applications, identify performance bottlenecks, track security incidents, and provide data-driven insights to development and operations teams. This knowledge is particularly valuable for Red Hat OpenShift environments where centralized logging and monitoring are crucial for managing containerized applications at scale.
