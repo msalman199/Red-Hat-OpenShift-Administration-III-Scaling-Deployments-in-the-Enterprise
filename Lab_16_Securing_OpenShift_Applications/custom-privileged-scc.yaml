@@ -1,0 +1,42 @@
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: custom-privileged-scc
+  annotations:
+    kubernetes.io/description: "Custom SCC for privileged workloads with specific capabilities"
+allowHostDirVolumePlugin: true
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: true
+allowedCapabilities:
+- SYS_ADMIN
+- NET_ADMIN
+- SYS_TIME
+defaultAddCapabilities: []
+fsGroup:
+  type: RunAsAny
+priority: 10
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+- KILL
+- MKNOD
+- SETUID
+- SETGID
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: RunAsAny
+users: []
+groups: []
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- hostPath
+- persistentVolumeClaim
+- projected
+- secret
