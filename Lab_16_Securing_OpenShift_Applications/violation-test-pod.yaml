@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: violation-test-pod
+  labels:
+    app: violation-test
+spec:
+  serviceAccountName: restricted-sa
+  containers:
+  - name: violation-container
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    command: ["/bin/bash"]
+    args: ["-c", "while true; do echo 'This should fail...'; sleep 30; done"]
+    securityContext:
+      privileged: true
+      runAsUser: 0
+  restartPolicy: Never
